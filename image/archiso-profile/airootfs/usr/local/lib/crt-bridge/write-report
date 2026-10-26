@@ -1,0 +1,222 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# write-report -- writes report.txt to the boot stick, once per boot.
+#
+# Run by crt-bridge-report.service, REPORT_DELAY seconds (default 20) after
+# the daemon was started, so the report sees whether it held or gave up.
+#
+# The stick is found by the UUID the kernel command line names
+# (archisodevice=UUID=...), else by its label, CRTBRIDGE. It is mounted
+# read-write for one short window only: write a temporary file, sync, rename
+# it to report.txt, sync, unmount. A FAT32 volume carries a "dirty" flag for
+# as long as it is mounted read-write, and Windows offers to repair a stick
+# unplugged in that state; the rename means a cut at the wrong moment leaves
+# the previous report.txt whole, never half of a new one. Everything else is
+# gathered before the stick is mounted.
+#
+# The report holds no secret. It holds the local address and the hardware
+# (MAC) address of the network card; the stick's README.txt says so.
+#
+# Without a stick (network boot) the report goes to the journal only.
+# The last line sent to the kernel log and the console,
+# "crt-bridge-report: written" or "crt-bridge-report: failed (...)", is what
+# automated boot tests wait for.
+set -u
+
+LABEL=CRTBRIDGE
+MNT=/run/crt-bridge/stick
+BUILD_INFO=/etc/crt-bridge/build-info
+DELAY="${REPORT_DELAY:-20}"
+
+kmsg() {
+    # The kernel log keeps the line (<5> = notice). systemd's default printk
+    # level does not print a notice on the console, so the line also goes to
+    # the console itself, where a boot test reading the serial port sees it.
+    printf '<5>crt-bridge-report: %s\n' "$1" > /dev/kmsg 2>/dev/null || true
+    printf 'crt-bridge-report: %s\n' "$1" > /dev/console 2>/dev/null || true
+    printf 'crt-bridge-report: %s\n' "$1"
+}
+
+case "$DELAY" in
+    ''|*[!0-9]*) DELAY=20 ;;
+esac
+sleep "$DELAY"
+
+# Split on any white space, carriage return included (a boot line edited
+# under Windows may end in CRLF), as read-stick and dev-mode do.
+cmdline_value() {
+    tr -s '[:space:]' '\n' < /proc/cmdline | sed -n "s/^$1=//p" | head -n 1
+}
+
+build_value() {
+    [ -r "$BUILD_INFO" ] || { echo unknown; return; }
+    v=$(sed -n "s/^$1=//p" "$BUILD_INFO" | head -n 1)
+    echo "${v:-unknown}"
+}
+
+if [ -d /sys/firmware/efi ]; then boot=uefi; else boot=bios; fi
+
+# The developer mode is the word crtbridge.dev=1 on the kernel command line,
+# as read-stick reads it.
+if tr -s '[:space:]' '\n' < /proc/cmdline | grep -qx crtbridge.dev=1; then mode=developer; else mode=public; fi
+
+cpus=$(nproc)
+
+# How the wait for the network ended: done (a DHCP address came within the
+# limit), failed (none came: the receiver keeps its link-local address, if
+# any), skipped (network boot: the address was set by the kernel command
+# line), not-run (nothing asked for the wait).
+network_wait() {
+    local unit=systemd-networkd-wait-online.service state cond_ts cond
+    state=$(systemctl show -P ActiveState "$unit" 2>/dev/null)
+    cond_ts=$(systemctl show -P ConditionTimestampMonotonic "$unit" 2>/dev/null)
+    cond=$(systemctl show -P ConditionResult "$unit" 2>/dev/null)
+    case "$state" in
+        active) echo done ;;
+        failed) echo failed ;;
+        *)
+            if [ -z "$cond_ts" ] || [ "$cond_ts" = 0 ]; then echo not-run
+            elif [ "$cond" = no ]; then echo skipped
+            else echo "${state:-unknown}"
+            fi ;;
+    esac
+}
+
+RUN=/run/crt-bridge
+
+# The findings of read-stick and crt-bridge-config (crt-bridge-config.service).
+# Lines are sorted by their prefix; the environment is quoted from the file
+# the daemon really read, not from the tool's echo of it.
+monitor_section() {
+    grep '^monitor:' "$RUN/config-report.txt" 2>/dev/null
+    if [ -r "$RUN/check-monitor.txt" ]; then
+        cat "$RUN/check-monitor.txt"
+    else
+        printf 'check_monitor: not run (crt-bridge-config.service did not run)\n'
+        printf 'check_monitor_exit: none\n'
+    fi
+}
+
+settings_section() {
+    cat "$RUN/stick-status.txt" 2>/dev/null
+    grep -v -e '^monitor:' -e '^env:' "$RUN/config-report.txt" 2>/dev/null
+    if [ -r "$RUN/user.env" ]; then
+        sed 's/^/user.env: /' "$RUN/user.env"
+    else
+        printf 'user.env: none, the image defaults apply\n'
+    fi
+}
+
+# What dev-mode (crt-bridge-dev.service) did. It runs only when the kernel
+# command line says crtbridge.dev=1.
+developer_section() {
+    if [ "$mode" != developer ]; then
+        printf 'developer: off (no crtbridge.dev=1 on the kernel command line), ssh closed\n'
+    elif [ -r "$RUN/dev-status.txt" ]; then
+        cat "$RUN/dev-status.txt"
+    else
+        printf 'developer: crt-bridge-dev.service left no status (%s)\n' \
+            "$(systemctl show -P ActiveState crt-bridge-dev.service 2>/dev/null)"
+    fi
+}
+
+daemon_unit=crt-bridge-rcv.service
+
+# Everything but the version line is gathered before the stick is mounted,
+# to keep the read-write window short.
+body=$(
+    printf 'source: %s\n' "$(build_value source)"
+    printf 'mode: %s\n' "$mode"
+    printf 'boot: %s\n' "$boot"
+    printf 'kernel: %s\n' "$(uname -r)"
+    printf 'logical_cpus: %s\n' "$cpus"
+    # Written, never enforced: the receiver starts on fewer CPUs.
+    if [ "$cpus" -lt 4 ] 2>/dev/null; then
+        printf 'warning: fewer than 4 logical CPUs (4 or more required)\n'
+    fi
+    printf 'network_wait: %s\n' "$(network_wait)"
+    printf 'daemon_state: %s\n' "$(systemctl show -P ActiveState "$daemon_unit" 2>/dev/null)"
+    printf 'daemon_exit_status: %s\n' "$(systemctl show -P ExecMainStatus "$daemon_unit" 2>/dev/null)"
+    printf 'daemon_restarts: %s\n' "$(systemctl show -P NRestarts "$daemon_unit" 2>/dev/null)"
+    # sshd runs only in developer mode: "inactive" on every other boot.
+    printf 'sshd_state: %s\n' "$(systemctl show -P ActiveState sshd.service 2>/dev/null)"
+    printf '\n== developer mode ==\n'
+    developer_section
+    printf '\n== monitor ==\n'
+    monitor_section
+    printf '\n== settings ==\n'
+    settings_section
+    # Every PCI device and the kernel driver bound to it: which display and
+    # network card the receiver found, and whether a driver took it.
+    printf '\n== lspci -k ==\n'
+    lspci -k 2>&1
+    printf '\n== ip -br address ==\n'
+    ip -br address 2>&1
+    # The hardware (MAC) address of each card, for Wake-on-LAN.
+    printf '\n== ip -br link ==\n'
+    ip -br link 2>&1
+    # Every socket listening on the network, to show that nothing listens
+    # beyond the bridge itself and the DHCP client.
+    printf '\n== listening sockets ==\n'
+    ss -tulpn 2>&1
+    # This boot only, the last lines: why the daemon holds, or why it stopped.
+    printf '\n== daemon journal ==\n'
+    journalctl -b -u "$daemon_unit" --no-pager -o short-monotonic -n 60 2>&1
+)
+
+dev=""
+uuid=$(cmdline_value archisodevice | sed -n 's/^UUID=//p')
+for _ in $(seq 1 10); do
+    if [ -n "$uuid" ] && [ -b "/dev/disk/by-uuid/$uuid" ]; then
+        dev="/dev/disk/by-uuid/$uuid"; break
+    fi
+    if [ -b "/dev/disk/by-label/$LABEL" ]; then
+        dev="/dev/disk/by-label/$LABEL"; break
+    fi
+    # No stick named on the command line and none labelled: network boot.
+    [ -z "$uuid" ] && break
+    sleep 1
+done
+
+if [ -z "$dev" ]; then
+    printf 'crt-bridge receiver report\nversion: unknown\n%s\n' "$body"
+    kmsg "no boot stick, journal only"
+    exit 0
+fi
+
+mkdir -p "$MNT"
+if ! mount -t vfat -o rw,nosuid,nodev,noexec,flush "$dev" "$MNT"; then
+    printf 'crt-bridge receiver report\nversion: unknown\n%s\n' "$body"
+    kmsg "failed (cannot mount $dev)"
+    exit 1
+fi
+
+version=unknown
+if [ -r "$MNT/VERSION.txt" ]; then
+    version=$(head -n 1 "$MNT/VERSION.txt" | tr -d '\r')
+    [ -n "$version" ] || version=unknown
+fi
+report=$(printf 'crt-bridge receiver report\nversion: %s\n%s\n' "$version" "$body")
+
+rc=0
+# A temporary file first, then the rename: report.txt is either the previous
+# report or the new one, whole.
+tmp="$MNT/report.tmp"
+if printf '%s\n' "$report" > "$tmp"; then
+    sync -f "$tmp" 2>/dev/null || sync
+    mv -f "$tmp" "$MNT/report.txt" || rc=1
+else
+    rc=1
+    rm -f "$tmp"
+fi
+sync -f "$MNT" 2>/dev/null || sync
+umount "$MNT" || rc=1
+
+printf '%s\n' "$report"
+if [ "$rc" -eq 0 ]; then
+    kmsg "written"
+else
+    kmsg "failed (write or unmount error on $dev)"
+fi
+exit "$rc"

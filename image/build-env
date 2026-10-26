@@ -1,0 +1,16 @@
+# Build pins for the crt-bridge receiver image. One KEY=value per line, no
+# quotes, no shell expansion: build-image.sh and qemu-smoke.sh parse this file,
+# they never source it.
+#
+# ARCH_IMAGE    the Arch Linux container every compile and pack step runs in,
+#               pinned by digest (pulled from the tag base-20261018.0.612668).
+# ALA_SNAPSHOT  the Arch Linux Archive date every package comes from. The
+#               profile's pacman.conf must name the same date.
+# SWITCHRES_*   the switchres source linked statically into the daemon
+#               (tag v2.2.2), pinned by full commit id.
+# SMOKE_IMAGE   the Debian container qemu-smoke.sh runs QEMU in (tag trixie).
+ARCH_IMAGE=archlinux@sha256:52dfbd5afb23a220d5ee92dafcb4c788d96c026ed04179890c23adef4c897fa0
+ALA_SNAPSHOT=2026/10/20
+SWITCHRES_URL=https://github.com/antonioginer/switchres.git
+SWITCHRES_COMMIT=fa18d11c948adea2787036d8d20ad532f9fd6cc0
+SMOKE_IMAGE=debian@sha256:4c25275446ca371766b8b093c696782eabce06263fccacb8d5d813b3dc44b308

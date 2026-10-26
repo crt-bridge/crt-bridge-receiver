@@ -1,0 +1,7 @@
+PROMPT 0
+DEFAULT crtbridge
+
+LABEL crtbridge
+  LINUX /arch/boot/x86_64/vmlinuz-linux-rt
+  INITRD /arch/boot/x86_64/initramfs-linux-rt.img
+  APPEND archisobasedir=arch archisodevice=UUID=@UUID@ copytoram=y @KERNEL_PARAMS@

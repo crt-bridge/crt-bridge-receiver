@@ -1,0 +1,22 @@
+# 20-wired.network -- the wired network of a receiver booted from its stick.
+#
+# The receiver asks for an address by DHCP. It also gives itself an IPv4
+# link-local address (169.254.x.x), so that a cable straight to the sending
+# PC works without any DHCP server; once a DHCP lease comes, the link-local
+# address is dropped.
+#
+# KernelCommandLine=!ip: this file applies only when the kernel command line
+# carries no ip= option. A network boot passes ip= with the address the boot
+# firmware already leased; the initramfs configures the card with it, and
+# systemd turns the same option into its own .network file
+# (systemd-network-generator). This file sorts first: without the condition
+# it would take the card over and replace that address. With ip=, nothing in
+# this file applies and the card keeps the address the network boot gave it.
+[Match]
+Type=ether
+Name=eth* en*
+KernelCommandLine=!ip
+
+[Network]
+DHCP=ipv4
+LinkLocalAddressing=ipv4

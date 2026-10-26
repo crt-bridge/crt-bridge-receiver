@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# dev-mode -- opens ssh on a receiver booted with crtbridge.dev=1.
+#
+# Run once per boot by crt-bridge-dev.service, which carries
+# ConditionKernelCommandLine=crtbridge.dev=1: without that word on the kernel
+# command line, systemd skips the unit and this script never runs.
+#
+# The image holds no ssh key and never enables sshd. The key comes from the
+# same command line: crtbridge.sshkey=<key>, where <key> is the base64 part
+# of an ed25519 public key (the second word of a .pub file). It is always 68
+# characters and holds no space, so no quoting rule of the kernel, syslinux,
+# systemd-boot or iPXE applies to it. In order:
+#
+#   1. the key is checked against a strict pattern: ed25519 only, exact
+#      length, base64 characters only;
+#   2. /root/.ssh/authorized_keys (0600) is written from a line this script
+#      rebuilds itself, "ssh-ed25519 <key> crtbridge-dev": nothing else from
+#      the command line reaches the file;
+#   3. sshd is started with `systemctl start --no-block`. The unit carries no
+#      Wants=sshd.service: systemd pulls in what a unit wants even when the
+#      unit's own condition skips it, and sshd would start on every boot.
+#
+# A missing or invalid key: one line in the journal and in the boot report,
+# nothing written, sshd not started, exit 0 (the daemon starts all the same).
+# Root has no password: sshd lets root in by key only.
+#
+# What it did goes to /run/crt-bridge/dev-status.txt, for the boot report.
+set -u
+export LC_ALL=C
+
+RUN=/run/crt-bridge
+STATUS=$RUN/dev-status.txt
+KEY_RE='^AAAAC3NzaC1lZDI1NTE5AAAAI[A-Za-z0-9+/]{43}$'
+
+install -d -m 0755 "$RUN"
+: > "$STATUS"
+
+say() {
+    printf 'developer: %s\n' "$1" >> "$STATUS"
+    printf 'dev-mode: %s\n' "$1"
+}
+
+say "crtbridge.dev=1 on the kernel command line"
+
+cmdline=$(cat /proc/cmdline)
+case "$cmdline" in
+    *$'\r'*) say "the kernel command line holds a carriage return (a CRLF line end), read as a space" ;;
+esac
+
+# Split on any white space, carriage return included: a boot line edited
+# under Windows may end in CRLF.
+key=$(printf '%s\n' "$cmdline" | tr -s '[:space:]' '\n' | sed -n 's/^crtbridge\.sshkey=//p' | head -n 1)
+
+if ! [[ $key =~ $KEY_RE ]]; then
+    say "crtbridge.sshkey missing or invalid (expected: the base64 part of an ed25519 public key, 68 characters); sshd not started"
+    exit 0
+fi
+
+umask 077
+install -d -m 0700 -o root -g root /root/.ssh
+if ! printf 'ssh-ed25519 %s crtbridge-dev\n' "$key" > /root/.ssh/authorized_keys.tmp \
+    || ! chmod 0600 /root/.ssh/authorized_keys.tmp \
+    || ! mv -f /root/.ssh/authorized_keys.tmp /root/.ssh/authorized_keys; then
+    rm -f /root/.ssh/authorized_keys.tmp
+    say "cannot write /root/.ssh/authorized_keys; sshd not started"
+    exit 0
+fi
+
+if systemctl start --no-block sshd.service; then
+    say "ed25519 key accepted, /root/.ssh/authorized_keys written, sshd start requested"
+else
+    say "ed25519 key accepted, but systemctl could not queue sshd.service"
+fi
+exit 0

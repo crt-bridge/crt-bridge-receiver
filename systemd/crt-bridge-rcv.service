@@ -1,0 +1,76 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=crt-bridge receiver daemon
+# The waiting screen shows the receiver's address: start once the network is
+# up. systemd-networkd-wait-online gives up after 15 seconds, and a failed
+# Wants= does not stop this unit: the daemon starts with or without an
+# address. On a network boot the wait is skipped (the address is already set).
+Wants=network-online.target
+After=network-online.target
+# A permanent failure ends in `failed` instead of looping. systemd counts the
+# STARTS of the unit, manual starts included: five within 120 s at most. The
+# sixth is refused, the unit goes to `failed`, result `start-limit-hit`.
+# Without these lines, RestartSec=2 keeps the unit below the default limit
+# (5 within 10 s): a permanent failure would loop forever, one restart every
+# two seconds. `systemctl reset-failed crt-bridge-rcv` clears the counter.
+# These lines belong in [Unit], not in [Service].
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# This is not a templated unit, so %i would expand to "": no CSV path is
+# given, and the daemon picks its documented fallback (jitter-<pid>.csv under
+# the LogsDirectory= path below).
+# The daemon's options come from /etc/crt-bridge/rcv.env, so that a setting
+# never requires editing this unit. $DAEMON_OPTS is written WITHOUT braces:
+# systemd then splits the variable on spaces and the daemon receives several
+# arguments. The braced form would pass ONE argument holding the spaces,
+# getopt_long would fail, and Restart=on-failure would repeat the same error
+# every two seconds.
+EnvironmentFile=/etc/crt-bridge/rcv.env
+# The settings read from the boot stick (crt-bridge-config.service). Read
+# after rcv.env, so its DAEMON_OPTS, always written, replaces the image's.
+# The leading "-": no file, no error (the image's defaults stand).
+EnvironmentFile=-/run/crt-bridge/user.env
+ExecStart=/usr/local/bin/crt-bridge-rcv $DAEMON_OPTS
+Restart=on-failure
+RestartSec=2
+# A refused configuration (an option out of bounds or unknown in
+# DAEMON_OPTS, a geometry too large, a modeline outside the envelope) exits
+# with code 3. Restarting does not repair it: no restart, the unit goes to
+# `failed` (Result=exit-code). Failures (code 1) are still restarted.
+RestartPreventExitStatus=3
+LimitMEMLOCK=infinity
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=80
+Nice=-20
+LogsDirectory=crt-bridge
+
+# Hardening. The daemon still runs as root, but the blast radius is kept
+# small. RestrictRealtime= stays unset (default false) because the daemon
+# *wants* SCHED_FIFO; everything else can be locked down without breaking
+# the DRM master and UDP socket workload.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ReadWritePaths=/var/log/crt-bridge
+# The DRM card and the sound output are allowed by class, not by node: the
+# settings may name another card (--drm-device) or another output
+# (--audio-device), and a single allowed node would make that open() fail
+# with EPERM, silently. The daemon itself checks which card it opened before
+# any direct register write.
+DeviceAllow=char-drm rw
+DeviceAllow=char-alsa rw
+# Any DeviceAllow= line closes the device policy to everything not listed.
+# Without the evdev class, every open() on /dev/input/event* fails with EPERM
+# and the input channel sends 60 empty reports per second.
+DeviceAllow=char-input rw
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

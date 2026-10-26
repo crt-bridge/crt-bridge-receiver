@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+# A second way of arming wake-on-LAN, INDEPENDENT of 10-eth0-wol.link. Both
+# ship unconditionally. systemd-udevd applies the .link file when the device
+# appears; but on a network boot eth0 already exists before switch_root,
+# created for the ip= option the boot firmware passes to the kernel. The .link
+# file is most likely applied again after switch_root
+# (systemd-udev-trigger.service replays an "add" event), but that is not
+# proven on this image; this unit is the safety net.
+Description=Arm wake-on-LAN (magic packet) on eth0, independently of the .link file
+After=systemd-udev-trigger.service
+Wants=systemd-udev-trigger.service
+ConditionPathExists=/sys/class/net/eth0
+
+[Service]
+Type=oneshot
+# ethtool is already in packages.x86_64: nothing to add.
+ExecStart=/usr/bin/ethtool -s eth0 wol g
+RemainAfterExit=yes
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

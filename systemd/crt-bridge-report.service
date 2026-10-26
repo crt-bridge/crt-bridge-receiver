@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Write report.txt to the crt-bridge boot stick
+# Ordering only: the report is written whether the daemon holds or gives up.
+After=crt-bridge-rcv.service local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/crt-bridge/write-report
+# write-report waits REPORT_DELAY seconds (20 by default) before it looks.
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

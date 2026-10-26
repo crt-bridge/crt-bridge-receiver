@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+# The volume is set by a SEPARATE unit, not by an ExecStartPre= of the daemon,
+# for two reasons. A volume failure must not keep the video bridge from
+# starting. And the daemon's unit then never opens /dev/snd/controlC0, so it
+# needs no DeviceAllow= line for it.
+Description=Set the sound card volume of the crt-bridge receiver
+# Before= is an ORDER, not a hard dependency: Requires= or BindsTo= would
+# block the daemon if the volume failed.
+Before=crt-bridge-rcv.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/crt-bridge/rcv.env
+# The settings read from the boot stick (crt-bridge-config.service). Read
+# after rcv.env, so a volume set in settings.ini replaces the image's. The
+# leading "-": no file, no error (the image's volume stands).
+EnvironmentFile=-/run/crt-bridge/user.env
+# ${HDA_VOLUME} WITH braces: one value, one argument. It is the opposite of
+# $DAEMON_OPTS in crt-bridge-rcv.service, and it is not cosmetic: see
+# systemd.service(5), section "Command Lines".
+ExecStart=/usr/local/bin/hda-volume ${HDA_VOLUME}
+RemainAfterExit=no
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# NO DeviceAllow= line here, on purpose. As soon as one DeviceAllow= line
+# exists, systemd closes the device policy to everything not listed, and the
+# open() of /dev/snd/controlC0 fails: the volume is never set, and the
+# receiver may stay silent. Without any line the policy stays "auto" and the
+# control device opens. The hardening gain is not worth that risk.
+
+[Install]
+WantedBy=multi-user.target

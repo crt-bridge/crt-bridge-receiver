@@ -1,0 +1,4 @@
+title   crt-bridge receiver
+linux   /arch/boot/x86_64/vmlinuz-linux-rt
+initrd  /arch/boot/x86_64/initramfs-linux-rt.img
+options archisobasedir=arch archisodevice=UUID=@UUID@ copytoram=y @KERNEL_PARAMS@

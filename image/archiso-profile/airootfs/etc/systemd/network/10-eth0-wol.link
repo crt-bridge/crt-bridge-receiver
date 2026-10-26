@@ -1,0 +1,21 @@
+# 10-eth0-wol.link -- arms wake-on-LAN (magic packet) on the receiver's
+# network card.
+#
+# A .link file only sets properties of the device itself -- name, hardware
+# address, wake-on-LAN -- never its addressing. The addressing lives in
+# 20-wired.network, which applies only when the kernel command line carries
+# no ip= (a boot from the stick); on a network boot the address comes from
+# that ip= option. Wake-on-LAN is armed in both cases, by this file.
+#
+# Driver=atl1* matches the Atheros L1 family: Driver= takes a list of shell
+# patterns (systemd.link(5)). The card of the reference receiver uses the
+# atl1 driver; the pattern also covers atl1c, and there is only one card of
+# this family in that machine.
+#
+# net.ifnames=0 is on the kernel command line: the interface is named eth0,
+# never enp*.
+[Match]
+Driver=atl1*
+
+[Link]
+WakeOnLan=magic

@@ -1,0 +1,37 @@
+# Packages of the crt-bridge receiver image.
+#
+# Rule: a package is listed only when a path of the image uses it; the line
+# above each one says which. Everything else comes as a dependency of these.
+# The build writes the full list of what the image holds to packages.txt.
+
+# The base system: systemd, shell, core tools, pacman.
+base
+# The kernel the receiver runs.
+linux-rt
+# CPU microcode for AMD processors.
+amd-ucode
+# Firmware of the Radeon display card (Cape Verde), with its licence.
+linux-firmware-radeon
+# Firmware of common Realtek network cards (r8169, and r8152 USB adapters).
+linux-firmware-realtek
+# Builds the initramfs.
+mkinitcpio
+# The archiso boot hooks: boot from the stick or from the network.
+mkinitcpio-archiso
+# ipconfig, which the archiso_pxe_common hook puts in the initramfs to bring
+# up the network on a PXE boot.
+mkinitcpio-nfs-utils
+# The archiso_pxe_http hook fetches the squashfs with it.
+curl
+# systemd-networkd and systemd-resolved, and every unit of the receiver.
+systemd
+# ip and ss, for the boot report.
+iproute2
+# crt-bridge-wol.service arms Wake-on-LAN with it.
+ethtool
+# The display library of the receiver daemon.
+libdrm
+# sshd, never enabled: only the developer mode starts it.
+openssh
+# lspci -k, for the boot report.
+pciutils

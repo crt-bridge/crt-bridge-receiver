@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# read-stick -- reads the settings a user put on the boot stick, and writes
+# what the receiver daemon and the volume unit read at start-up.
+#
+# Run once per boot by crt-bridge-config.service, before both units. In order:
+#
+#   1. a fail-closed /run/crt-bridge/user.env is written first. It points the
+#      daemon at a monitor file that does not exist: if anything below fails
+#      half-way, the daemon stops (exit 3) instead of silently using the
+#      built-in 15 kHz band in place of a file the user put on the stick;
+#   2. the stick is found by the UUID the kernel command line names
+#      (archisodevice=UUID=...), else by its label, CRTBRIDGE, and mounted
+#      read-only (ro,nosuid,nodev,noexec): a FAT volume mounted read-only is
+#      never marked dirty, so pulling the stick out never asks for a repair;
+#   3. monitor.ini and settings.ini, at the root of the stick, go to
+#      crt-bridge-config, which tolerates what Windows editors write, refuses
+#      the rest by name, and writes /run/crt-bridge/monitor.ini and
+#      /run/crt-bridge/user.env;
+#   4. the stick is unmounted;
+#   5. crt-bridge-rcv --check-monitor runs on the monitor file the daemon will
+#      be given; its output and exit code are kept for the boot report.
+#
+# Without a stick (network boot) nothing is mounted: the tool still composes
+# the environment, from no file at all.
+#
+# Developer mode is the word crtbridge.dev=1 on the kernel command line: the
+# monitor file built into the image wins, and a monitor.ini on the stick is
+# ignored (the report says so).
+#
+# Everything this script writes lives under /run/crt-bridge/, in memory:
+#   user.env           HDA_VOLUME=... and DAEMON_OPTS=..., one per line
+#   monitor.ini        the stick's monitor file, normalized
+#   config-report.txt  the findings of crt-bridge-config, one per line
+#   stick-status.txt   where the settings came from
+#   check-monitor.txt  the output of --check-monitor, then its exit code
+set -u
+
+LABEL=CRTBRIDGE
+RUN=/run/crt-bridge
+MNT=$RUN/stick
+ENV_OUT=$RUN/user.env
+MON_OUT=$RUN/monitor.ini
+REPORT=$RUN/config-report.txt
+STATUS=$RUN/stick-status.txt
+CHECK=$RUN/check-monitor.txt
+TOOL=/usr/local/bin/crt-bridge-config
+DAEMON=/usr/local/bin/crt-bridge-rcv
+BUILTIN=/usr/share/crt-bridge/monitors/jvc_dtv1710cg.ini
+
+install -d -m 0755 "$RUN"
+rm -f "$MON_OUT" "$REPORT" "$STATUS" "$CHECK"
+
+status() { printf 'stick: %s\n' "$1" >> "$STATUS"; printf 'read-stick: %s\n' "$1"; }
+
+# 1. Fail closed until the tool has written the real environment.
+printf 'DAEMON_OPTS=--monitor %s\n' "$MON_OUT" > "$ENV_OUT.tmp" && mv -f "$ENV_OUT.tmp" "$ENV_OUT"
+
+# The command line is split on any white space, carriage return included: a
+# boot line edited under Windows may end in CRLF.
+cmdline_has() {
+    tr -s '[:space:]' '\n' < /proc/cmdline | grep -qx "$1"
+}
+
+cmdline_value() {
+    tr -s '[:space:]' '\n' < /proc/cmdline | sed -n "s/^$1=//p" | head -n 1
+}
+
+developer=0
+cmdline_has crtbridge.dev=1 && developer=1
+
+# 2. Find the stick. The boot loader names it by UUID; the label is the
+# fallback for a line edited by hand. No UUID on the line and no label: a
+# network boot.
+dev=""
+uuid=$(cmdline_value archisodevice | sed -n 's/^UUID=//p')
+for _ in $(seq 1 10); do
+    if [ -n "$uuid" ] && [ -b "/dev/disk/by-uuid/$uuid" ]; then
+        dev="/dev/disk/by-uuid/$uuid"; break
+    fi
+    if [ -b "/dev/disk/by-label/$LABEL" ]; then
+        dev="/dev/disk/by-label/$LABEL"; break
+    fi
+    [ -z "$uuid" ] && break
+    sleep 1
+done
+
+args=(--env-out "$ENV_OUT" --report "$REPORT" --monitor-out "$MON_OUT")
+[ "$developer" -eq 1 ] && args+=(--developer --builtin-monitor "$BUILTIN")
+
+mounted=0
+if [ -z "$dev" ] && [ -n "$uuid" ]; then
+    status "the boot stick (UUID=$uuid) was not found; the receiver will not start"
+elif [ -z "$dev" ]; then
+    status "none (network boot), no settings read"
+else
+    mkdir -p "$MNT"
+    if mount -t vfat -o ro,nosuid,nodev,noexec "$dev" "$MNT"; then
+        mounted=1
+        status "found ($dev), mounted read-only"
+    else
+        status "cannot mount $dev; the receiver will not start"
+    fi
+fi
+
+# 3. Hand the files to the tool. FAT lookups ignore case: MONITOR.INI is
+# found too. Windows hides known extensions, so "monitor.ini" saved by
+# Notepad may really be monitor.ini.txt: say so, the tool sees no file.
+rc=0
+if [ "$mounted" -eq 1 ]; then
+    for f in monitor.ini settings.ini; do
+        if [ ! -e "$MNT/$f" ] && [ -e "$MNT/$f.txt" ]; then
+            status "found $f.txt, not read: rename it to $f (Windows hides the .txt ending)"
+        fi
+    done
+    args+=(--monitor-in "$MNT/monitor.ini" --settings-in "$MNT/settings.ini")
+    "$TOOL" "${args[@]}" || rc=$?
+    # 4. Unmount before anything else runs.
+    umount "$MNT" || status "cannot unmount $MNT"
+elif [ -z "$dev" ] && [ -z "$uuid" ]; then
+    "$TOOL" "${args[@]}" || rc=$?
+fi
+if [ "$rc" -ne 0 ]; then
+    status "crt-bridge-config failed (exit $rc); the receiver will not start"
+    printf 'DAEMON_OPTS=--monitor %s\n' "$MON_OUT" > "$ENV_OUT.tmp" && mv -f "$ENV_OUT.tmp" "$ENV_OUT"
+    rm -f "$MON_OUT"
+fi
+
+# 5. Dry-run the monitor file the daemon will be given, read from the very
+# environment it will get. No --monitor: the built-in band, nothing to check.
+monitor=""
+opts=$(sed -n 's/^DAEMON_OPTS=//p' "$ENV_OUT" | tail -n 1)
+set -f
+# shellcheck disable=SC2086
+set -- $opts
+set +f
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = --monitor ] && [ "$#" -ge 2 ]; then monitor=$2; break; fi
+    shift
+done
+if [ -z "$monitor" ]; then
+    {
+        printf 'check_monitor: not run, no monitor file given (built-in 15 kHz band)\n'
+        printf 'check_monitor_exit: none\n'
+    } > "$CHECK"
+else
+    crc=0
+    "$DAEMON" --check-monitor "$monitor" > "$CHECK.out" 2>&1 || crc=$?
+    {
+        printf 'check_monitor: %s\n' "$monitor"
+        cat "$CHECK.out"
+        printf 'check_monitor_exit: %s\n' "$crc"
+    } > "$CHECK"
+    rm -f "$CHECK.out"
+fi
+cat "$CHECK"
+exit 0

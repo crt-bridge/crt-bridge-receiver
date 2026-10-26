@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=Read the crt-bridge settings from the boot stick
+# Ordering only. The daemon and the volume unit read /run/crt-bridge/user.env,
+# which this unit writes; they start after it whatever its result. read-stick
+# writes a fail-closed user.env before anything else, so a failure here
+# stops the daemon (exit 3) rather than letting it use the built-in band in
+# place of a file on the stick.
+Before=crt-bridge-rcv.service crt-bridge-volume.service
+After=local-fs.target
+# The stick's device node may appear a little late: read-stick waits for it
+# itself, ten seconds at most, instead of ordering after udev settling.
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/crt-bridge/read-stick
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target
