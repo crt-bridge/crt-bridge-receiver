@@ -677,7 +677,6 @@ int main(int argc, char **argv)
         .wake_fd             = wake_fd,   /* -1 when the option is off */
         .shed_window         = shed_window,   /* 0 when dropping is off */
         .monitor             = &g_monitor,    /* never NULL */
-        .monitor_from_file   = (monitor_path != NULL),
         .shared              = &g_shared,
         .jitter              = jr,
     };

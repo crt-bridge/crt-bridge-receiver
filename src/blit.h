@@ -75,13 +75,12 @@ struct blit_thread_config {
     /* The CRT, read by main() BEFORE any thread (monitor.h). `monitor` is
      * never NULL: the built-in 15 kHz band stands in when --monitor is
      * absent; blit_thread_start refuses NULL. The table is written before
-     * the threads are created and only read afterwards. `monitor_from_file`
-     * is 1 under --monitor: a mode that switchres refuses to register is
-     * then a rejected configuration (exit code 3) and not a failure (exit
-     * code 1, restarted). Passed through the configuration, never through
-     * struct net_blit_shared (defined twice). */
+     * the threads are created and only read afterwards. A mode that
+     * switchres refuses to register is logged (switchres_no_existing_mode),
+     * never an exit code, whether the table came from a file or not.
+     * Passed through the configuration, never through struct
+     * net_blit_shared (defined twice). */
     const struct monitor    *monitor;
-    int                      monitor_from_file;
     struct net_blit_shared  *shared;
     struct jitter_ring      *jitter;
 };

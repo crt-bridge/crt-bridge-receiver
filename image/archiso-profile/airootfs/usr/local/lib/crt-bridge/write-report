@@ -6,8 +6,8 @@
 # Run by crt-bridge-report.service, REPORT_DELAY seconds (default 20) after
 # the daemon was started, so the report sees whether it held or gave up.
 #
-# The stick is found by the UUID the kernel command line names
-# (archisodevice=UUID=...), else by its label, CRTBRIDGE. It is mounted
+# The stick is the device the kernel command line names, as read-stick finds
+# it (archisodevice=, else archisolabel=). It is mounted
 # read-write for one short window only: write a temporary file, sync, rename
 # it to report.txt, sync, unmount. A FAT32 volume carries a "dirty" flag for
 # as long as it is mounted read-write, and Windows offers to repair a stick
@@ -18,13 +18,13 @@
 # The report holds no secret. It holds the local address and the hardware
 # (MAC) address of the network card; the stick's README.txt says so.
 #
-# Without a stick (network boot) the report goes to the journal only.
+# On a network boot (a boot line that names no stick) the report goes to the
+# journal only: a CRTBRIDGE stick left plugged in is never written to.
 # The last line sent to the kernel log and the console,
 # "crt-bridge-report: written" or "crt-bridge-report: failed (...)", is what
 # automated boot tests wait for.
 set -u
 
-LABEL=CRTBRIDGE
 MNT=/run/crt-bridge/stick
 BUILD_INFO=/etc/crt-bridge/build-info
 DELAY="${REPORT_DELAY:-20}"
@@ -47,6 +47,26 @@ sleep "$DELAY"
 # under Windows may end in CRLF), as read-stick and dev-mode do.
 cmdline_value() {
     tr -s '[:space:]' '\n' < /proc/cmdline | sed -n "s/^$1=//p" | head -n 1
+}
+
+# The path of the stick the boot line names, or nothing on a network boot.
+# The boot loader of the stick names it by UUID; LABEL=, PARTUUID=, a /dev
+# path and archisolabel= are what a line edited by hand may say instead. A
+# form not listed here is printed as it is: it names no block device, so the
+# stick counts as not found (and read-stick keeps the receiver stopped).
+# Kept identical in read-stick and write-report.
+stick_path() {
+    local d l
+    d=$(cmdline_value archisodevice)
+    l=$(cmdline_value archisolabel)
+    case "$d" in
+        UUID=?*) printf '/dev/disk/by-uuid/%s\n' "${d#UUID=}" ;;
+        LABEL=?*) printf '/dev/disk/by-label/%s\n' "${d#LABEL=}" ;;
+        PARTUUID=?*) printf '/dev/disk/by-partuuid/%s\n' "${d#PARTUUID=}" ;;
+        ?*) printf '%s\n' "$d" ;;
+        *) if [ -n "$l" ]; then printf '/dev/disk/by-label/%s\n' "$l"; fi ;;
+    esac
+    return 0
 }
 
 build_value() {
@@ -165,19 +185,15 @@ body=$(
     journalctl -b -u "$daemon_unit" --no-pager -o short-monotonic -n 60 2>&1
 )
 
+# Only the stick the boot line names; none named: a network boot.
 dev=""
-uuid=$(cmdline_value archisodevice | sed -n 's/^UUID=//p')
-for _ in $(seq 1 10); do
-    if [ -n "$uuid" ] && [ -b "/dev/disk/by-uuid/$uuid" ]; then
-        dev="/dev/disk/by-uuid/$uuid"; break
-    fi
-    if [ -b "/dev/disk/by-label/$LABEL" ]; then
-        dev="/dev/disk/by-label/$LABEL"; break
-    fi
-    # No stick named on the command line and none labelled: network boot.
-    [ -z "$uuid" ] && break
-    sleep 1
-done
+want=$(stick_path)
+if [ -n "$want" ]; then
+    for _ in $(seq 1 10); do
+        if [ -b "$want" ]; then dev=$want; break; fi
+        sleep 1
+    done
+fi
 
 if [ -z "$dev" ]; then
     printf 'crt-bridge receiver report\nversion: unknown\n%s\n' "$body"

@@ -14,8 +14,8 @@
  *   - 240p travels as CMD_BLIT_VSYNC (0x06), the only blit GroovyMAME uses.
  *     Do not route it to CMD_BLIT_FIELD_VSYNC (0x07), even though
  *     groovymister marks 0x06 as deprecated;
- *   - the CMD_INIT our emitter SENDS is 4 bytes, as GroovyMAME sends it. Do
- *     not add a fifth byte to it;
+ *   - a CMD_INIT is 4 bytes, as GroovyMAME sends it, or the 8-byte padded
+ *     form described below; never 5. Do not add a fifth byte to it;
  *   - there is no delta mode to handle: GroovyMAME 0.289 has none, and a
  *     delta frame is refused openly (net.c logs it once).
  * What the receiver ACCEPTS is a separate matter, and wider: CMD_INIT at 4,

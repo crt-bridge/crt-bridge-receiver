@@ -230,9 +230,33 @@ static int parse_uint(const char *p, size_t n, size_t max_digits, int *out)
 }
 
 /*
+ * Options extra_options cannot pass. --monitor and --check-monitor would name
+ * the tube file in place of monitor.ini, whose checked copy is what the boot
+ * report judges; --help and --version make the daemon exit before any
+ * picture. getopt_long takes an unambiguous abbreviation (`--mon`), so any
+ * prefix of these names is refused too; no other option of the daemon is
+ * such a prefix.
+ */
+static const char *const extra_refused[] = { "monitor", "check-monitor", "help", "version" };
+
+/* The refused option `tok` (`--name` or `--name=value`) stands for, or NULL. */
+static const char *refused_option(const char *tok, size_t tn)
+{
+    const char *name = tok + 2;
+    const char *eq = memchr(name, '=', tn - 2);
+    size_t nn = eq ? (size_t)(eq - name) : tn - 2;
+    for (size_t i = 0; i < sizeof extra_refused / sizeof extra_refused[0]; i++) {
+        size_t rn = strlen(extra_refused[i]);
+        if (nn > 0 && nn <= rn && memcmp(name, extra_refused[i], nn) == 0) return extra_refused[i];
+    }
+    return NULL;
+}
+
+/*
  * extra_options: long options only, each optionally followed by ONE value
  * (`--shed-window 2`). Every token stays within token_char, so nothing can
- * reach the environment but plain words; the daemon judges the options.
+ * reach the environment but plain words; the daemon judges the options,
+ * except the few refused here by name (extra_refused).
  * On success the tokens are written to out joined by single spaces.
  */
 static int parse_extra(const char *v, size_t n, char *out, size_t cap, char *why, size_t whycap)
@@ -258,6 +282,12 @@ static int parse_extra(const char *v, size_t n, char *out, size_t cap, char *why
         if (tn >= 2 && tok[0] == '-' && tok[1] == '-') {
             if (tn == 2) {
                 snprintf(why, whycap, "'--' alone is not an option");
+                return -1;
+            }
+            const char *refused = refused_option(tok, tn);
+            if (refused) {
+                snprintf(why, whycap, "'%.*s' (--%s) cannot be passed from settings.ini",
+                         echo_len(tn), tok, refused);
                 return -1;
             }
             may_take_value = memchr(tok, '=', tn) == NULL;

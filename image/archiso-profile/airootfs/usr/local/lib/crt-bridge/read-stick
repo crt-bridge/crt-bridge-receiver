@@ -10,8 +10,9 @@
 #      daemon at a monitor file that does not exist: if anything below fails
 #      half-way, the daemon stops (exit 3) instead of silently using the
 #      built-in 15 kHz band in place of a file the user put on the stick;
-#   2. the stick is found by the UUID the kernel command line names
-#      (archisodevice=UUID=...), else by its label, CRTBRIDGE, and mounted
+#   2. the stick is the device the kernel command line names, the way
+#      archiso found its own root: archisodevice= (UUID=..., LABEL=...,
+#      PARTUUID=... or a /dev path), else archisolabel=. It is mounted
 #      read-only (ro,nosuid,nodev,noexec): a FAT volume mounted read-only is
 #      never marked dirty, so pulling the stick out never asks for a repair;
 #   3. monitor.ini and settings.ini, at the root of the stick, go to
@@ -22,8 +23,10 @@
 #   5. crt-bridge-rcv --check-monitor runs on the monitor file the daemon will
 #      be given; its output and exit code are kept for the boot report.
 #
-# Without a stick (network boot) nothing is mounted: the tool still composes
-# the environment, from no file at all.
+# A boot line that names no stick is a network boot: nothing is looked for
+# and nothing is mounted, even when a CRTBRIDGE stick is left plugged in (it
+# may hold the settings of another receiver, or none meant for this boot).
+# The tool still composes the environment, from no file at all.
 #
 # Developer mode is the word crtbridge.dev=1 on the kernel command line: the
 # monitor file built into the image wins, and a monitor.ini on the stick is
@@ -37,7 +40,6 @@
 #   check-monitor.txt  the output of --check-monitor, then its exit code
 set -u
 
-LABEL=CRTBRIDGE
 RUN=/run/crt-bridge
 MNT=$RUN/stick
 ENV_OUT=$RUN/user.env
@@ -70,30 +72,45 @@ cmdline_value() {
 developer=0
 cmdline_has crtbridge.dev=1 && developer=1
 
-# 2. Find the stick. The boot loader names it by UUID; the label is the
-# fallback for a line edited by hand. No UUID on the line and no label: a
-# network boot.
+# The path of the stick the boot line names, or nothing on a network boot.
+# The boot loader of the stick names it by UUID; LABEL=, PARTUUID=, a /dev
+# path and archisolabel= are what a line edited by hand may say instead. A
+# form not listed here is printed as it is: it names no block device, so the
+# stick counts as not found (and read-stick keeps the receiver stopped).
+# Kept identical in read-stick and write-report.
+stick_path() {
+    local d l
+    d=$(cmdline_value archisodevice)
+    l=$(cmdline_value archisolabel)
+    case "$d" in
+        UUID=?*) printf '/dev/disk/by-uuid/%s\n' "${d#UUID=}" ;;
+        LABEL=?*) printf '/dev/disk/by-label/%s\n' "${d#LABEL=}" ;;
+        PARTUUID=?*) printf '/dev/disk/by-partuuid/%s\n' "${d#PARTUUID=}" ;;
+        ?*) printf '%s\n' "$d" ;;
+        *) if [ -n "$l" ]; then printf '/dev/disk/by-label/%s\n' "$l"; fi ;;
+    esac
+    return 0
+}
+
+# 2. Find the stick the boot line names; its device node may appear a few
+# seconds late. A line that names none: a network boot, nothing looked for.
 dev=""
-uuid=$(cmdline_value archisodevice | sed -n 's/^UUID=//p')
-for _ in $(seq 1 10); do
-    if [ -n "$uuid" ] && [ -b "/dev/disk/by-uuid/$uuid" ]; then
-        dev="/dev/disk/by-uuid/$uuid"; break
-    fi
-    if [ -b "/dev/disk/by-label/$LABEL" ]; then
-        dev="/dev/disk/by-label/$LABEL"; break
-    fi
-    [ -z "$uuid" ] && break
-    sleep 1
-done
+want=$(stick_path)
+if [ -n "$want" ]; then
+    for _ in $(seq 1 10); do
+        if [ -b "$want" ]; then dev=$want; break; fi
+        sleep 1
+    done
+fi
 
 args=(--env-out "$ENV_OUT" --report "$REPORT" --monitor-out "$MON_OUT")
 [ "$developer" -eq 1 ] && args+=(--developer --builtin-monitor "$BUILTIN")
 
 mounted=0
-if [ -z "$dev" ] && [ -n "$uuid" ]; then
-    status "the boot stick (UUID=$uuid) was not found; the receiver will not start"
+if [ -z "$want" ]; then
+    status "none (network boot: the boot line names no stick), no settings read"
 elif [ -z "$dev" ]; then
-    status "none (network boot), no settings read"
+    status "the boot stick ($want) was not found; the receiver will not start"
 else
     mkdir -p "$MNT"
     if mount -t vfat -o ro,nosuid,nodev,noexec "$dev" "$MNT"; then
@@ -118,7 +135,7 @@ if [ "$mounted" -eq 1 ]; then
     "$TOOL" "${args[@]}" || rc=$?
     # 4. Unmount before anything else runs.
     umount "$MNT" || status "cannot unmount $MNT"
-elif [ -z "$dev" ] && [ -z "$uuid" ]; then
+elif [ -z "$want" ]; then
     "$TOOL" "${args[@]}" || rc=$?
 fi
 if [ "$rc" -ne 0 ]; then

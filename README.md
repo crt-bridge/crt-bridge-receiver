@@ -11,7 +11,8 @@ disks.
 - **By default the receiver drives only its built-in 15 kHz band**, the one every
   standard-resolution CRT takes. It never leaves that band unless you describe your tube in a
   `monitor.ini` (see below), and a `monitor.ini` can only narrow the limits built into the
-  receiver, never widen them.
+  receiver, never widen them. Those limits, and the format of the file, are described in
+  `hardware/monitors/README.md`.
 - **The PC's BIOS shows its own screens at 31 kHz before any of this software runs** (the
   power-on screen, the boot menu). A 15 kHz-only tube receives that signal for a few seconds at
   every boot. This project cannot prevent it: judge whether your tube tolerates it before you
@@ -65,7 +66,7 @@ Copy them elsewhere first.
 ## The files at the root of the stick
 
 - `monitor.ini` (absent by default): describes your tube, in the `crt_range` format of
-  switchres. Absent, the receiver uses its built-in 15 kHz band. A refused `monitor.ini` (a
+  switchres (see `hardware/monitors/README.md`). Absent, the receiver uses its built-in 15 kHz band. A refused `monitor.ini` (a
   wrong value, or a file saved as "Unicode") stops the receiver instead of falling back, and
   `report.txt` says why. Files saved by Windows Notepad are accepted.
 - `settings.ini`: volume, waiting screen, sound, inputs and extra options, each one explained in
@@ -75,6 +76,9 @@ Copy them elsewhere first.
   why the receiver runs or stopped. It holds the receiver's local address and the hardware
   address of its network card: look it over before you share it.
 - `README.txt` says the same at more length, for the user of the stick.
+
+The receiver reads and writes only the stick its boot line names. Started from the network, it
+neither reads nor writes a stick left plugged in.
 
 ## Developer mode
 
@@ -90,6 +94,9 @@ The boot line lives in `syslinux/syslinux.cfg` (BIOS) and `loader/entries/crtbri
 with that key only, and the receiver uses the example JVC file built into the image instead of a
 `monitor.ini` on the stick. Without it, port 22 stays closed. An invalid key opens nothing, and
 `report.txt` says so.
+
+**Developer mode is for the reference bench only: it drives the JVC file's 31 kHz band (480p),
+whatever tube is connected. Do not turn it on with any other tube.**
 
 ## Building the image from source
 
