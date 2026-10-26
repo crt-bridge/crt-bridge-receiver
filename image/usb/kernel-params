@@ -1,1 +1,1 @@
-net.ifnames=0 irqaffinity=0,1 vconsole.keymap=us drm.edid_firmware=DVI-I-1:edid/jvc_dtv1710cg.bin radeon.modeset=1 radeon.si_support=1 amdgpu.si_support=0 video=DVI-I-1:640x480@60
+net.ifnames=0 irqaffinity=0,1 vconsole.keymap=us drm.edid_firmware=DVI-I-1:edid/jvc_dtv1710cg.bin radeon.modeset=1 radeon.si_support=1 amdgpu.si_support=0
