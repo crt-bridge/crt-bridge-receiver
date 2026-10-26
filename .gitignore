@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# What image/build-image.sh and image/qemu-smoke.sh write when run from the
+# root of this repository, and what make writes in src/.
+/out/
+/smoke/
+/smoke-*/
+*.img
+*.sfs
+*.o
+src/crt-bridge-rcv
+src/hda-volume
+src/crt-bridge-config

@@ -1,0 +1,35 @@
+# crt-bridge receiver @VERSION@
+
+Pre-release: not yet tried on a PC outside the test bench.
+
+A USB stick image that turns a PC into a crt-bridge receiver: it boots from the stick, runs from
+memory, and shows on a CRT the picture an emulator sends over the local network. See
+`README.md` for what the PC needs, and the `README.txt` at the root of the stick.
+
+- By default only the built-in 15 kHz band is driven. The PC's BIOS shows its own screens at
+  31 kHz before the receiver starts.
+- Verified on one PC in BIOS mode, one AMD Radeon HD 7750 (`1002:683F`) and one JVC DT-V1710CG
+  tube. UEFI boot is provided but not verified on hardware; Secure Boot must be disabled.
+- 4 logical CPUs minimum.
+- Writing the stick again erases `monitor.ini` and `settings.ini`: copy them first.
+
+## Built from
+
+| | |
+|---|---|
+| source commit | `@SOURCE_COMMIT@` |
+| kernel | `@KERNEL@` |
+| package snapshot | Arch Linux Archive `@SNAPSHOT@` |
+| switchres | `@SWITCHRES@` |
+
+Where each part comes from, and its license: `SOURCES.md`. Every package of the image:
+`packages.txt`, attached to this release.
+
+The protocol has no authentication and no encryption. Use the receiver on a local network only;
+never expose its UDP ports to the internet.
+
+## SHA-256
+
+```
+@IMG_SHA256@
+```

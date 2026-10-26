@@ -66,3 +66,12 @@ Writing the stick again
 
 Writing the stick image again (Rufus, balenaEtcher, dd) erases the whole
 stick, monitor.ini and settings.ini included. Copy them elsewhere first.
+
+Licenses
+--------
+
+LICENSE (the receiver, GPL-3.0-or-later) and the LICENSES folder (switchres,
+GPL-2.0-or-later; the Radeon microcode) hold the licenses of the receiver and
+of what it embeds. Where every part of the image comes from: SOURCES.md, in
+the receiver's source repository,
+https://github.com/crt-bridge/crt-bridge-receiver

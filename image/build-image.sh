@@ -164,6 +164,13 @@ inside_pack() {
         sed 's/$/\r/' "/src/image/usb/$f" > "/tmp/stick/$f" || die "cannot stage $f for the stick"
     done
     cp /src/hardware/monitors/jvc_dtv1710cg.ini /tmp/stick/examples/monitor-jvc_dtv1710cg.ini
+    # The licenses travel with the image, byte for byte: the receiver's own
+    # (GPL-3.0), switchres' (GPL-2.0, linked into the daemon) and the notice
+    # the Radeon microcode asks to be reproduced.
+    mkdir -p /tmp/stick/LICENSES
+    cp /src/LICENSE /tmp/stick/LICENSE || die "cannot stage LICENSE for the stick"
+    cp /src/LICENSES/GPL-2.0.txt /src/LICENSES/LICENSE.radeon /tmp/stick/LICENSES/ \
+        || die "cannot stage LICENSES/ for the stick"
     bash /src/image/usb/make-usb-img.sh /work/netboot /src/image/usb "/work/$IMG_NAME" /tmp/stick \
         > /work/logs/usb-uuid.txt || die "make-usb-img.sh failed"
     chown "$HOST_UID:$HOST_GID" "/work/$IMG_NAME" /work/logs/usb-uuid.txt
@@ -257,6 +264,9 @@ if [ -z "$REPACK" ]; then
     for f in "$SRC/image/usb/settings.ini" "$SRC/image/usb/README.txt"; do
         [ -f "$f" ] || die "missing $f"
         [ "$(tr -cd '\r' < "$f" | wc -c)" -eq 0 ] || die "$f carries CR bytes"
+    done
+    for f in "$SRC/LICENSE" "$SRC/LICENSES/GPL-2.0.txt" "$SRC/LICENSES/LICENSE.radeon"; do
+        [ -s "$f" ] || die "missing $f (it goes on the stick)"
     done
 
     step "daemon, hda-volume and crt-bridge-config (switchres $SWITCHRES_COMMIT)"
