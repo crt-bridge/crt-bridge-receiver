@@ -6,6 +6,8 @@ emulator sends over the local network with the Groovy protocol (UDP port 32100; 
 keyboard and mouse of the receiver go back on port 32101). Nothing is installed on the PC's own
 disks.
 
+From an empty PC to a picture on the tube, with the emitter: [GUIDE.md](GUIDE.md).
+
 ## The tube comes first
 
 - **By default the receiver drives only its built-in 15 kHz band**, the one every
@@ -32,6 +34,8 @@ disks.
 
 The image's kernel line names the bench card's connector (`DVI-I-1`) for the bench tube's
 EDID; on another connector the receiver still starts and serves its built-in band.
+**Connect the tube to the DVI-I output:** only that connector gets the forced 15 kHz EDID, and on
+another one a tube that reports no EDID of its own may get a text console above 15 kHz at boot.
 
 ## What the PC needs
 
@@ -123,7 +127,6 @@ make libswitchres has run>` (see `src/Makefile`).
 
 ## Not in this repository
 
-An end-to-end guide, from an empty PC to a picture on the tube, is not part of this release.
 The private test suite of the daemon is not published.
 
 ## Sources and licenses
